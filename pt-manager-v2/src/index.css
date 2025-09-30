@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-background text-foreground;
+}
+
+/* --- NUOVA ANIMAZIONE "AURORA" --- */
+@keyframes aurora {
+  from {
+    background-position: 50% 50%, 50% 50%;
+  }
+  to {
+    background-position: 350% 50%, 350% 50%;
+  }
+}
+
+.aurora-bg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: radial-gradient(
+      at 27% 37%,
+      hsla(215, 98%, 61%, 0.1) 0px,
+      transparent 50%
+    ),
+    radial-gradient(at 97% 21%, hsla(145, 98%, 61%, 0.1) 0px, transparent 50%),
+    radial-gradient(at 82% 99%, hsla(239, 98%, 61%, 0.1) 0px, transparent 50%),
+    radial-gradient(at 33% 36%, hsla(239, 98%, 61%, 0.1) 0px, transparent 50%);
+  background-repeat: no-repeat;
+  background-size: 200% 200%;
+  animation: aurora 15s linear infinite;
+}
+
