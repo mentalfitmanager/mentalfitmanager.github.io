@@ -1,7 +1,7 @@
 {
   "name": "pt-manager-v2",
   "private": true,
-  "homepage": "https://Girbanx.github.io/pt-manager-v2",
+  "homepage": "https://mentalfitmanager.github.io",
   "version": "0.0.0",
   "type": "module",
   "scripts": {
@@ -21,7 +21,7 @@
     "react-calendar": "^6.0.0",
     "react-chartjs-2": "^5.2.0",
     "react-dom": "^18.2.0",
-    "react-hook-form": "^7.51.2",
+    "react-hook-form": "^7.5.1.2",
     "react-icons": "^5.0.1",
     "react-router-dom": "^6.22.3",
     "tailwind-merge": "^2.2.2",
@@ -36,9 +36,10 @@
     "eslint-plugin-react": "^7.34.1",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.6",
-    "gh-pages": "^6.3.0",
+    "gh-pages": "^6.1.1",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.1",
     "vite": "^5.2.0"
   }
 }
+
