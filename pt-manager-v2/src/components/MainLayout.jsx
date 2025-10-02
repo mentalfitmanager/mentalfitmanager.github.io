@@ -1,11 +1,36 @@
 import React, { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { FiUsers, FiGrid, FiActivity, FiMenu, FiX } from 'react-icons/fi';
+import { useNavigate, useLocation, Outlet } from 'react-router-dom';
+import { FiUsers, FiGrid, FiActivity, FiMenu, FiX, FiMessageSquare } from 'react-icons/fi';
 import { motion, AnimatePresence } from 'framer-motion';
+
+const AnimatedBackground = () => (
+  <div className="absolute inset-0 -z-10 overflow-hidden bg-background">
+    <motion.div
+      className="absolute top-[10%] left-[5%] h-[400px] w-[400px] rounded-full bg-blue-500/20 filter blur-3xl"
+      animate={{ 
+        x: [0, 150, -50, 0], 
+        y: [0, -50, 100, 0],
+        scale: [1, 1.3, 0.8, 1],
+      }}
+      transition={{ duration: 40, repeat: Infinity, repeatType: 'mirror' }}
+    />
+    <motion.div
+      className="absolute bottom-[10%] right-[5%] h-[400px] w-[400px] rounded-full bg-cyan-500/20 filter blur-3xl"
+      animate={{ 
+        x: [0, -100, 50, 0], 
+        y: [0, 100, -50, 0],
+        scale: [1, 0.8, 1.2, 1],
+      }}
+      transition={{ duration: 45, repeat: Infinity, repeatType: 'mirror', delay: 7 }}
+    />
+  </div>
+);
+
 
 const navLinks = [
   { to: '/', icon: <FiGrid size={18} />, label: 'Dashboard' },
   { to: '/clients', icon: <FiUsers size={18} />, label: 'Clienti' },
+  { to: '/chat', icon: <FiMessageSquare size={18} />, label: 'Chat' },
   { to: '/updates', icon: <FiActivity size={18} />, label: 'Aggiornamenti' },
 ];
 
@@ -27,8 +52,8 @@ const NavLink = ({ to, icon, label, onClick }) => {
 const SidebarContent = ({ onLinkClick }) => {
   const navigate = useNavigate();
   return (
-    <aside className="w-60 bg-card p-4 flex flex-col border-r border-white/10 h-full">
-      <h2 className="text-xl font-bold mb-8 px-2">PT Manager V2</h2>
+    <aside className="w-60 bg-card/60 backdrop-blur-lg p-4 flex flex-col border-r border-white/10 h-full">
+      <h2 className="text-xl font-bold mb-8 px-2">PT Manager</h2>
       <nav className="flex flex-col gap-2">
         {navLinks.map(link => (
           <NavLink 
@@ -47,14 +72,16 @@ const SidebarContent = ({ onLinkClick }) => {
   );
 };
 
-export default function MainLayout({ children }) {
+export default function MainLayout() { 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const location = useLocation();
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="relative min-h-screen text-foreground">
+      <AnimatedBackground />
+
       {/* Sidebar per Desktop */}
-      <div className="hidden md:flex md:fixed">
+      <div className="hidden md:flex md:fixed h-full">
         <SidebarContent />
       </div>
 
@@ -89,7 +116,8 @@ export default function MainLayout({ children }) {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, ease: "easeInOut" }}
           >
-            {children}
+            {/* --- QUI VIENE INSERITA LA PAGINA CORRETTA (Dashboard, Clienti, etc.) --- */}
+            <Outlet />
           </motion.div>
         </main>
       </div>
