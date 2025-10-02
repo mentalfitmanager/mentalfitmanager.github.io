@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
+import { HashRouter, Routes, Route, Navigate, Outlet } from "react-router-dom"; // <-- 1. MODIFICA QUI
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
 
-// Layout e Pagine Admin
+// Pagine e Layout
 import MainLayout from "./components/MainLayout";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -14,8 +14,6 @@ import ClientDetail from "./pages/ClientDetail";
 import EditClient from './pages/EditClient';
 import Updates from './pages/Updates';
 import AdminChat from './pages/AdminChat';
-
-// Pagine Cliente
 import ClientLogin from "./pages/ClientLogin";
 import FirstAccess from "./pages/FirstAccess";
 import ClientDashboard from "./pages/ClientDashboard";
@@ -23,7 +21,7 @@ import ClientAnamnesi from './pages/ClientAnamnesi';
 import ClientChecks from './pages/ClientChecks';
 import ClientPayments from './pages/ClientPayments';
 import ClientChat from './pages/ClientChat';
-import ForgotPassword from './pages/ForgotPassword'; // <-- 1. Importiamo la nuova pagina
+import ForgotPassword from './pages/ForgotPassword';
 
 const AuthSpinner = () => (
   <div className="flex justify-center items-center min-h-screen bg-background text-foreground">
@@ -32,7 +30,7 @@ const AuthSpinner = () => (
 );
 
 // Componente "Guardiano" che protegge le rotte
-const ProtectedRoute = ({ isAllowed, redirectPath = '/login', children }) => {
+const ProtectedRoute = ({ isAllowed, redirectPath, children }) => {
   if (!isAllowed) {
     return <Navigate to={redirectPath} replace />;
   }
@@ -47,33 +45,26 @@ export default function App() {
   });
 
   useEffect(() => {
-    // Controlla il ruolo salvato in questa specifica scheda del browser
     const sessionRole = sessionStorage.getItem('app_role');
-
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         const clientDocRef = doc(db, 'clients', currentUser.uid);
         const clientDoc = await getDoc(clientDocRef);
         const isCurrentUserAClient = clientDoc.exists() && clientDoc.data().isClient;
-
-        // Logica di protezione della sessione
         if (sessionRole === 'admin' && isCurrentUserAClient) {
           await signOut(auth);
           return;
         }
-        
         setAuthInfo({
           isLoading: false,
           user: currentUser,
           isClient: isCurrentUserAClient,
         });
-
       } else {
         sessionStorage.removeItem('app_role');
         setAuthInfo({ isLoading: false, user: null, isClient: false });
       }
     });
-
     return () => unsubscribe();
   }, []);
 
@@ -82,13 +73,12 @@ export default function App() {
   }
 
   return (
-    <BrowserRouter>
+    <HashRouter> {/* <-- 2. MODIFICA QUI */}
       <Routes>
         {/* === ROTTE PUBBLICHE (visibili da tutti) === */}
         <Route path="/login" element={<Login />} />
         <Route path="/client-login" element={<ClientLogin />} />
-        <Route path="/client/forgot-password" element={<ForgotPassword />} /> {/* <-- 2. Aggiungiamo la rotta */}
-
+        <Route path="/client/forgot-password" element={<ForgotPassword />} />
 
         {/* === ROTTE PROTETTE PER L'ADMIN === */}
         <Route element={<ProtectedRoute isAllowed={authInfo.user && !authInfo.isClient} redirectPath="/login" />}>
@@ -125,7 +115,7 @@ export default function App() {
             } 
         />
       </Routes>
-    </BrowserRouter>
+    </HashRouter>
   );
 }
 
