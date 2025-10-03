@@ -24,12 +24,19 @@ const AdminChat = () => {
 
     const auth = getAuth();
     const adminUser = auth.currentUser;
-    const adminUIDs = ["QwWST9OVOlTOi5oheyCqfpXLOLg2", "AeZKjJYu5zMZ4mvffaGiqCBb0cF2"];
+    
+    // Assicura che l'UID dell'Admin sia sempre disponibile o nullo
+    const currentAdminUID = adminUser?.uid; 
+    
+    // Fallback: definisci un array di UID noti se necessario per vecchie chat, 
+    // ma usiamo currentAdminUID per la logica principale.
+    // const adminUIDs = ["..."]; // Rimosso l'uso complesso per semplificare
 
     useEffect(() => {
-        if (!adminUser) return;
+        if (!currentAdminUID) return;
         const chatsRef = collection(db, 'chats');
-        const q = query(chatsRef, where('participants', 'array-contains-any', adminUIDs), orderBy('lastUpdate', 'desc'));
+        // Filtra le chat che contengono l'UID dell'Admin corrente
+        const q = query(chatsRef, where('participants', 'array-contains', currentAdminUID), orderBy('lastUpdate', 'desc'));
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const chatsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -41,7 +48,7 @@ const AdminChat = () => {
         });
 
         return () => unsubscribe();
-    }, [adminUser]);
+    }, [currentAdminUID]); // Dipendenza dall'UID stabile
 
     useEffect(() => {
         if (!selectedChatId) { setMessages([]); return; }
@@ -82,7 +89,6 @@ const AdminChat = () => {
                 setSearchResults(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
             } catch (error) {
                 console.error("Errore nella ricerca (potrebbe mancare un indice in Firestore):", error);
-                // Potresti mostrare un messaggio all'utente qui
             }
             setIsSearching(false);
         };
@@ -93,51 +99,68 @@ const AdminChat = () => {
     }, [searchQuery]);
 
     const handleSelectClient = async (client) => {
-        if (!adminUser) return;
-        const primaryAdminUID = adminUIDs[0];
-        const newChatId = [client.id, primaryAdminUID].sort().join('_');
+        if (!currentAdminUID) return;
+        
+        // Crea l'ID della chat univoco e ordinato
+        const newChatId = [client.id, currentAdminUID].sort().join('_');
 
+        // Trova la chat esistente (già caricata in `chats`)
         const existingChat = chats.find(chat => chat.id === newChatId);
-        if (existingChat) {
-            setSelectedChatId(existingChat.id);
-        } else {
+        
+        if (!existingChat) {
+            // Crea la nuova chat se non esiste
             const chatRef = doc(db, 'chats', newChatId);
             await setDoc(chatRef, {
-                participants: [client.id, primaryAdminUID],
-                participantNames: { [client.id]: client.name, [primaryAdminUID]: "Coach" },
-                lastMessage: "Conversazione iniziata",
+                participants: [client.id, currentAdminUID],
+                participantNames: { [client.id]: client.name, [currentAdminUID]: "Coach" },
+                lastMessage: "Conversazione avviata",
                 lastUpdate: serverTimestamp()
             });
-            setSelectedChatId(newChatId);
         }
+        
+        // Imposta l'ID della chat selezionata
+        setSelectedChatId(newChatId);
+
         setSearchQuery('');
         setSearchResults([]);
     };
 
     const handleSendMessage = async (e) => {
         e.preventDefault();
-        if (newMessage.trim() === '' || !selectedChatId || !adminUser) return;
+        // Condizione di guardia stabile, usa l'UID stabile
+        if (newMessage.trim() === '' || !selectedChatId || !currentAdminUID) {
+             console.error("Invio messaggio fallito: Campi mancanti o Admin non autenticato.", { selectedChatId, currentAdminUID, newMessage: newMessage.trim() });
+             return;
+        }
 
         const messagesRef = collection(db, 'chats', selectedChatId, 'messages');
-        await addDoc(messagesRef, {
-            text: newMessage,
-            createdAt: serverTimestamp(),
-            senderId: adminUser.uid
-        });
+        try {
+            await addDoc(messagesRef, {
+                text: newMessage,
+                createdAt: serverTimestamp(),
+                senderId: currentAdminUID // Usa l'UID dell'Admin corrente
+            });
 
-        const chatRef = doc(db, 'chats', selectedChatId);
-        await setDoc(chatRef, {
-            lastMessage: newMessage,
-            lastUpdate: serverTimestamp(),
-        }, { merge: true });
+            const chatRef = doc(db, 'chats', selectedChatId);
+            await setDoc(chatRef, {
+                lastMessage: newMessage,
+                lastUpdate: serverTimestamp(),
+            }, { merge: true });
 
-        setNewMessage('');
+            setNewMessage('');
+        } catch (error) {
+            console.error("ERRORE FIREBASE DURANTE L'INVIO DEL MESSAGGIO (Regole di Sicurezza?):", error);
+        }
     };
+
+    const selectedChat = chats.find(c => c.id === selectedChatId);
+    const chatTitle = selectedChat ? (selectedChat.participantNames[selectedChat.participants.find(p => p !== currentAdminUID)] || 'Cliente') : 'Chat';
+
 
     return (
         <div className="flex h-[calc(100vh-120px)] bg-card/60 backdrop-blur-lg rounded-xl border border-white/10 overflow-hidden">
-            <div className="w-1/3 border-r border-white/10 flex flex-col">
-                <div className="p-4 border-b border-white/10">
+            <div className="w-full md:w-1/3 border-r border-white/10 flex flex-col">
+                <div className="p-4 border-b border-white/10 flex-shrink-0">
                     <div className="relative">
                         <FiSearch className="absolute top-1/2 left-3 -translate-y-1/2 text-muted" />
                         <input
@@ -165,7 +188,8 @@ const AdminChat = () => {
                         {loadingChats ? <LoadingSpinner /> : (
                             <div className="flex-1 overflow-y-auto">
                                 {chats.map(chat => {
-                                    const clientUID = chat.participants.find(p => !adminUIDs.includes(p));
+                                    // Identifica l'altro partecipante (il cliente)
+                                    const clientUID = chat.participants.find(p => p !== currentAdminUID);
                                     const clientName = chat.participantNames ? chat.participantNames[clientUID] : 'Cliente';
                                     return (
                                         <div
@@ -184,29 +208,38 @@ const AdminChat = () => {
                 )}
             </div>
             {/* Colonna Messaggi */}
-            <div className="w-2/3 flex flex-col">
+            <div className="w-full md:w-2/3 flex flex-col">
                 {selectedChatId ? (
                     <>
+                        <div className="p-4 border-b border-white/10 flex-shrink-0">
+                            <h3 className="font-bold text-lg text-white">{chatTitle}</h3>
+                        </div>
                         <div className="flex-1 overflow-y-auto p-6 space-y-4">
                            {loadingMessages ? <LoadingSpinner /> : messages.map(msg => (
-                               <div key={msg.id} className={`flex ${msg.senderId === adminUser?.uid ? 'justify-end' : 'justify-start'}`}>
-                                   <div className={`max-w-md p-3 rounded-2xl ${msg.senderId === adminUser?.uid ? 'bg-primary rounded-br-none' : 'bg-background rounded-bl-none'}`}>
+                               <div key={msg.id} className={`flex ${msg.senderId === currentAdminUID ? 'justify-end' : 'justify-start'}`}>
+                                   <div className={`max-w-md p-3 rounded-2xl ${msg.senderId === currentAdminUID ? 'bg-primary rounded-br-none' : 'bg-background rounded-bl-none'}`}>
                                        <p className="text-white break-words">{msg.text}</p>
                                    </div>
                                </div>
                            ))}
                            <div ref={messagesEndRef} />
                         </div>
-                        <div className="p-4 border-t border-white/10">
+                        <div className="p-4 border-t border-white/10 flex-shrink-0">
                             <form onSubmit={handleSendMessage} className="flex items-center gap-4">
                                 <input
                                     type="text"
                                     value={newMessage}
                                     onChange={(e) => setNewMessage(e.target.value)}
                                     placeholder="Scrivi una risposta..."
+                                    // Input attivo per digitare
                                     className="flex-1 p-3 bg-background border border-white/10 rounded-full outline-none focus:ring-2 focus:ring-primary text-white"
                                 />
-                                <button type="submit" className="p-3 bg-primary hover:bg-primary/80 text-white rounded-full disabled:opacity-50" disabled={!newMessage.trim()}>
+                                <button 
+                                    type="submit" 
+                                    className="p-3 bg-primary hover:bg-primary/80 text-white rounded-full disabled:opacity-50" 
+                                    // Disabilitato solo se il campo è vuoto o la chat non è selezionata
+                                    disabled={!newMessage.trim() || !selectedChatId}
+                                >
                                     <FiSend size={20} />
                                 </button>
                             </form>
@@ -215,7 +248,7 @@ const AdminChat = () => {
                 ) : (
                     <div className="flex flex-col justify-center items-center h-full text-muted">
                         <FiMessageSquare size={48} />
-                        <p className="mt-4">Seleziona una conversazione o cercane una nuova.</p>
+                        <p className="mt-4">Seleziona una conversazione o cercala per nome.</p>
                     </div>
                 )}
             </div>
@@ -224,4 +257,3 @@ const AdminChat = () => {
 };
 
 export default AdminChat;
-

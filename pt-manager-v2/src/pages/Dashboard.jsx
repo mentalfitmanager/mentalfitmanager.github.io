@@ -15,6 +15,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 
+// --- UTILITY FUNCTIONS ---
 function toDate(x) {
   if (!x) return null;
   if (typeof x?.toDate === 'function') return x.toDate();
@@ -38,6 +39,7 @@ const timeAgo = (date) => {
   return "ora";
 };
 
+// --- COMPONENT: StatCard ---
 const StatCard = ({ title, value, icon, isCurrency = false, isPercentage = false }) => (
   <div className="bg-card/40 p-4 rounded-xl border border-white/10 backdrop-blur-md h-full">
     <div className="flex items-center gap-3">
@@ -53,6 +55,7 @@ const StatCard = ({ title, value, icon, isCurrency = false, isPercentage = false
   </div>
 );
 
+// --- COMPONENT: ActivityItem ---
 const ActivityItem = ({ item, navigate }) => {
   const icons = {
     expiring: <FiClock className="text-yellow-400" />,
@@ -82,6 +85,7 @@ const ActivityItem = ({ item, navigate }) => {
   );
 };
 
+// --- COMPONENT: ChartControls ---
 const ChartControls = ({ dataType, setDataType, timeRange, setTimeRange }) => (
   <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mt-4">
     <div className="flex bg-card/50 p-1 rounded-lg border border-white/10 backdrop-blur-sm">
@@ -95,6 +99,7 @@ const ChartControls = ({ dataType, setDataType, timeRange, setTimeRange }) => (
   </div>
 );
 
+// --- COMPONENT: QuickNotes ---
 const QuickNotes = () => {
     const [notes, setNotes] = useState('');
     const [isSaving, setIsSaving] = useState(false);
@@ -111,19 +116,22 @@ const QuickNotes = () => {
     }, []);
 
     useEffect(() => {
+        // Debounce: salva dopo 2 secondi di inattività
         const handler = setTimeout(async () => {
             if (notes === undefined) return;
             setIsSaving(true);
             try {
+                // Sovrascrive il documento
                 await setDoc(notesRef, { content: notes, lastUpdated: serverTimestamp() });
             } catch (error) {
                 console.error("Error saving notes:", error);
             } finally {
-                setTimeout(() => setIsSaving(false), 1000);
+                // Imposta 'Salvataggio...' per un breve periodo
+                setTimeout(() => setIsSaving(false), 1000); 
             }
         }, 2000); 
 
-        return () => clearTimeout(handler);
+        return () => clearTimeout(handler); // Pulisce il timeout precedente
     }, [notes]);
 
     return (
@@ -142,6 +150,7 @@ const QuickNotes = () => {
     );
 };
 
+// --- MAIN COMPONENT: Dashboard ---
 export default function Dashboard() {
   const navigate = useNavigate();
   const [clients, setClients] = useState([]);
@@ -152,52 +161,79 @@ export default function Dashboard() {
   const [chartDataType, setChartDataType] = useState('revenue');
   const [chartTimeRange, setChartTimeRange] = useState('yearly');
 
+  // Mappa per un rapido recupero del nome cliente
   const clientNameMap = useMemo(() => 
     clients.reduce((acc, client) => ({ ...acc, [client.id]: client.name }), {}), 
   [clients]);
 
+  // Ascoltatori in tempo reale (onSnapshot)
   useEffect(() => {
+    // Clienti (Root Collection)
     const unsubClients = onSnapshot(collection(db, "clients"), snap => setClients(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     
-    // --- QUERY PAGAMENTI CORRETTA ---
-    // Ora salviamo anche il clientId a cui appartiene il pagamento
+    // Pagamenti (Collection Group per tutte le sub-collection 'payments')
     const unsubPayments = onSnapshot(collectionGroup(db, 'payments'), snap => 
-        setAllPayments(snap.docs.map(doc => ({ ...doc.data(), clientId: doc.ref.path.split('/')[1] })))
+        setAllPayments(snap.docs.map(doc => ({ 
+            ...doc.data(), 
+            // Estrai il clientId dal percorso del documento (es. clients/CLIENT_ID/payments/PAYMENT_ID)
+            clientId: doc.ref.path.split('/')[1] 
+        })))
     );
 
-    const unsubChecks = onSnapshot(collectionGroup(db, 'checks'), snap => setAllChecks(snap.docs.map(doc => ({ ...doc.data(), clientId: doc.ref.path.split('/')[1] }))));
-    const unsubAnamnesis = onSnapshot(collectionGroup(db, 'anamnesi'), snap => setAllAnamnesis(snap.docs.map(doc => ({ ...doc.data(), clientId: doc.ref.path.split('/')[1] }))));
+    // Check (Collection Group per tutte le sub-collection 'checks')
+    const unsubChecks = onSnapshot(collectionGroup(db, 'checks'), snap => 
+        setAllChecks(snap.docs.map(doc => ({ 
+            ...doc.data(), 
+            clientId: doc.ref.path.split('/')[1] 
+        })))
+    );
+
+    // Anamnesi (Collection Group per tutte le sub-collection 'anamnesi')
+    const unsubAnamnesis = onSnapshot(collectionGroup(db, 'anamnesi'), snap => 
+        setAllAnamnesis(snap.docs.map(doc => ({ 
+            ...doc.data(), 
+            clientId: doc.ref.path.split('/')[1] 
+        })))
+    );
     
+    // Cleanup dei listeners
     return () => { unsubClients(); unsubPayments(); unsubChecks(); unsubAnamnesis(); };
   }, []);
 
+  // Logica di calcolo e aggregazione dati (useMemo)
   const { clientStats, monthlyIncome, activityFeed, chartData, focusClient, retentionRate } = useMemo(() => {
     const now = new Date();
-    const validClientIds = new Set(clients.map(c => c.id)); // <-- Lista dei clienti validi
+    const validClientIds = new Set(clients.map(c => c.id)); 
 
-    // --- FILTRO PAGAMENTI CORRETTO ---
+    // Filtra i pagamenti per assicurarsi che appartengano a un cliente valido
     const validPayments = allPayments.filter(p => validClientIds.has(p.clientId));
 
+    // Calcola Clienti Attivi
     let activeClients = 0;
     clients.forEach(c => {
       const end = toDate(c.scadenza);
       if(!end || end >= now) activeClients++;
     });
 
+    // --- LOGICA GRAFICO (Revenue/Clients) ---
     let labels, data, chartConfig;
-    // ... (logica del grafico, ora usa 'validPayments' invece di 'allPayments')
+    
     if (chartTimeRange === 'yearly') {
+        // 12 mesi
         labels = Array.from({ length: 12 }, (_, i) => new Date(now.getFullYear(), now.getMonth() - 11 + i, 1).toLocaleString('it-IT', { month: 'short' }));
         const revenueData = Array(12).fill(0);
         const clientsData = Array(12).fill(0);
 
+        // Aggregazione Fatturato Annuale (con correzione parseFloat)
         validPayments.forEach(p => {
             const paymentDate = toDate(p.paymentDate);
             if(paymentDate){
                 const diffMonths = (now.getFullYear() - paymentDate.getFullYear()) * 12 + (now.getMonth() - paymentDate.getMonth());
-                if (diffMonths >= 0 && diffMonths < 12) revenueData[11 - diffMonths] += p.amount;
+                if (diffMonths >= 0 && diffMonths < 12) revenueData[11 - diffMonths] += parseFloat(p.amount);
             }
         });
+        
+        // Aggregazione Nuovi Clienti Annuale
         clients.forEach(c => {
             const created = toDate(c.createdAt);
              if(created){
@@ -206,16 +242,19 @@ export default function Dashboard() {
             }
         });
         data = chartDataType === 'revenue' ? revenueData : clientsData;
-    } else { // monthly
+    } else { // monthly (per giorno)
         const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
         labels = Array.from({ length: daysInMonth }, (_, i) => i + 1);
         const revenueData = Array(daysInMonth).fill(0);
         const clientsData = Array(daysInMonth).fill(0);
 
+        // Aggregazione Fatturato Mensile (con correzione parseFloat)
         validPayments.forEach(p => {
             const paymentDate = toDate(p.paymentDate);
-            if (paymentDate && paymentDate.getFullYear() === now.getFullYear() && paymentDate.getMonth() === now.getMonth()) revenueData[paymentDate.getDate() - 1] += p.amount;
+            if (paymentDate && paymentDate.getFullYear() === now.getFullYear() && paymentDate.getMonth() === now.getMonth()) revenueData[paymentDate.getDate() - 1] += parseFloat(p.amount);
         });
+        
+        // Aggregazione Nuovi Clienti Mensile
         clients.forEach(c => {
             const created = toDate(c.createdAt);
             if (created && created.getFullYear() === now.getFullYear() && created.getMonth() === now.getMonth()) clientsData[created.getDate() - 1]++;
@@ -223,18 +262,20 @@ export default function Dashboard() {
         data = chartDataType === 'revenue' ? revenueData : clientsData;
     }
     
+    // Configurazione del set di dati del grafico
     if (chartDataType === 'revenue') {
         chartConfig = { type: 'line', label: 'Fatturato', data, borderColor: "#22c55e", backgroundColor: "rgba(34, 197, 94, 0.2)", fill: true, tension: 0.4 };
     } else {
         chartConfig = { type: 'bar', label: 'Nuovi Clienti', data, backgroundColor: "rgba(37, 99, 235, 0.6)" };
     }
     
+    // --- FEED ATTIVITÀ ---
     const expiringNotifs = clients.filter(c => { const end = toDate(c.scadenza); if (!end) return false; const diffDays = Math.ceil((end - now) / (1000 * 60 * 60 * 24)); return diffDays >= 0 && diffDays <= 15; }).map(c => ({ type: 'expiring', date: c.scadenza, clientId: c.id, description: `Scade tra ${Math.ceil((toDate(c.scadenza) - now) / (1000 * 60 * 60 * 24))} giorni` }));
     const checkNotifs = allChecks.map(c => ({ type: 'new_check', date: c.createdAt, clientId: c.clientId, description: `Ha inviato un nuovo check` }));
     const anamnesiNotifs = allAnamnesis.map(a => ({ type: 'new_anamnesi', date: a.createdAt, clientId: a.clientId, description: `Ha compilato l'anamnesi` }));
     const feed = [...expiringNotifs, ...checkNotifs, ...anamnesiNotifs].sort((a,b) => (toDate(b.date) || 0) - (toDate(a.date) || 0)).map(item => ({...item, clientName: clientNameMap[item.clientId]})).filter(item => item.clientName);
     
-    // Calcolo Retention Rate... (invariato)
+    // --- CALCOLO RETENTION RATE ---
     const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const clientsActiveLastMonth = new Set(clients.filter(c => toDate(c.scadenza) > lastMonthStart).map(c => c.id));
@@ -242,17 +283,18 @@ export default function Dashboard() {
     const retained = [...clientsActiveLastMonth].filter(id => clientsActiveThisMonth.has(id)).length;
     const retention = clientsActiveLastMonth.size > 0 ? Math.round((retained / clientsActiveLastMonth.size) * 100) : 100;
     
-    // Focus Cliente... (invariato)
+    // --- FOCUS CLIENTE ---
     const activeClientsList = clients.filter(c => !toDate(c.scadenza) || toDate(c.scadenza) >= now);
     const focusClient = activeClientsList.length > 0 ? activeClientsList[new Date().getDate() % activeClientsList.length] : null;
     const focusClientGoal = allAnamnesis.find(a => a.clientId === focusClient?.id)?.mainGoal;
 
     return {
       clientStats: { total: clients.length, active: activeClients },
-      // --- CALCOLO INCASSO MENSILE CORRETTO ---
+      // *** CORREZIONE INCASSO MENSILE APPLICATA QUI ***
       monthlyIncome: validPayments
         .filter(p => toDate(p.paymentDate)?.getMonth() === now.getMonth() && toDate(p.paymentDate)?.getFullYear() === now.getFullYear())
-        .reduce((sum, p) => sum + p.amount, 0),
+        .reduce((sum, p) => sum + parseFloat(p.amount), 0),
+      // **********************************************
       activityFeed: feed,
       chartData: { labels, datasets: [chartConfig] },
       focusClient: focusClient ? { ...focusClient, goal: focusClientGoal } : null,
@@ -260,6 +302,7 @@ export default function Dashboard() {
     };
   }, [clients, allPayments, allChecks, allAnamnesis, clientNameMap, chartDataType, chartTimeRange]);
   
+  // Opzioni del grafico
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
@@ -270,6 +313,7 @@ export default function Dashboard() {
     },
   };
 
+  // Variazioni di animazione per Framer Motion
   const containerVariants = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.07 } } };
   const itemVariants = { hidden: { y: 20, opacity: 0 }, visible: { y: 0, opacity: 1 } };
 
@@ -300,7 +344,7 @@ export default function Dashboard() {
                 <Bar data={chartData} options={chartOptions} />
               }
             </div>
-            <ChartControls dataType={chartDataType} setDataType={setChartDataType} timeRange={chartTimeRange} setTimeRange={setChartTimeRange}/>
+            <ChartControls dataType={chartDataType} setDataType={setChartDataType} timeRange={chartTimeRange} setTimeRange={setTimeRange}/>
           </motion.div>
            <motion.div className="grid grid-cols-1 md:grid-cols-2 gap-6" variants={itemVariants}>
               {focusClient && (
@@ -328,4 +372,3 @@ export default function Dashboard() {
     </motion.div>
   );
 }
-

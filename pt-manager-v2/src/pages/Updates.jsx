@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
 import { collection, collectionGroup, onSnapshot, query, limit } from 'firebase/firestore';
-import { FiUserPlus, FiFileText, FiCheckSquare, FiX } from 'react-icons/fi';
+import { FiUserPlus, FiFileText, FiCheckSquare, FiX, FiDollarSign } from 'react-icons/fi'; // AGGIUNTA FiDollarSign
 import { motion, AnimatePresence } from 'framer-motion';
 
 function toDate(x) {
@@ -11,6 +11,20 @@ function toDate(x) {
   const d = new Date(x);
   return isNaN(d) ? null : d;
 }
+
+// Funzione per determinare lo stato di pagamento (copiata dalla logica in Clients.jsx)
+const getPaymentStatus = (scadenza) => {
+    const expiryDate = toDate(scadenza);
+    if (!expiryDate) return 'na';
+
+    const now = new Date();
+    const diffDays = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 0) return 'expired';
+    if (diffDays <= 15) return 'expiring'; // Entro 15 giorni
+    return 'paid';
+};
+
 
 // Componente per una singola colonna, ora con il pulsante per archiviare
 const UpdateColumn = ({ title, icon, items, navigate, tab, onDismiss }) => (
@@ -37,6 +51,7 @@ const UpdateColumn = ({ title, icon, items, navigate, tab, onDismiss }) => (
                 <p className="font-medium text-sm">{item.clientName}</p>
                 <p className="text-xs text-muted">
                   {toDate(item.date)?.toLocaleDateString('it-IT', { day: 'numeric', month: 'long' })}
+                  {item.scadenza && <span className="text-red-400 ml-2 font-bold">{`(Scad. ${toDate(item.scadenza).toLocaleDateString('it-IT')})`}</span>}
                 </p>
               </button>
               {/* --- PULSANTE PER ARCHIVIARE LA NOTIFICA --- */}
@@ -65,6 +80,7 @@ export default function Updates() {
   const [dismissedItems, setDismissedItems] = useState([]); // Stato per le notifiche archiviate
 
   useEffect(() => {
+    // Carica tutti i clienti una volta sola
     const unsub = onSnapshot(collection(db, "clients"), (snap) => {
       setClients(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
@@ -78,6 +94,7 @@ export default function Updates() {
     }, {});
   }, [clients]);
 
+  // Logica per caricare Checks e Anamnesis
   useEffect(() => {
     if (Object.keys(clientNameMap).length === 0) return;
 
@@ -108,7 +125,7 @@ export default function Updates() {
             id: doc.id,
             clientId,
             clientName: clientNameMap[clientId],
-            date: doc.data().createdAt,
+            date: doc.data().submittedAt || doc.data().createdAt, // Usa submittedAt se disponibile
           };
         })
         .filter(item => item.clientName); // --- FILTRA VIA I CLIENTI ELIMINATI ---
@@ -123,6 +140,7 @@ export default function Updates() {
     };
   }, [clientNameMap]);
   
+  // Lista dei NUOVI CLIENTI
   const newClients = useMemo(() => {
       return [...clients]
         .sort((a, b) => (toDate(b.createdAt) || 0) - (toDate(a.createdAt) || 0))
@@ -135,6 +153,20 @@ export default function Updates() {
         }));
   }, [clients]);
 
+  // Lista dei CLIENTI IN SCADENZA (Nuova Logica)
+  const expiringClients = useMemo(() => {
+      return clients
+        .filter(c => getPaymentStatus(c.scadenza) === 'expiring' || getPaymentStatus(c.scadenza) === 'expired') // Filtra sia "in scadenza" che "scaduti"
+        .sort((a, b) => (toDate(a.scadenza) || 0) - (toDate(b.scadenza) || 0)) // Ordina per la scadenza più vicina
+        .map(c => ({
+            id: c.id,
+            clientId: c.id,
+            clientName: c.name,
+            date: c.scadenza, // La data principale è la scadenza
+            scadenza: c.scadenza, // Passiamo la scadenza per la visualizzazione
+        }));
+  }, [clients]);
+
   // Funzione per archiviare una notifica
   const handleDismiss = (itemId) => {
     setDismissedItems(prev => [...prev, itemId]);
@@ -142,13 +174,25 @@ export default function Updates() {
   
   // Filtra gli item archiviati prima di passarli alle colonne
   const filteredNewClients = newClients.filter(item => !dismissedItems.includes(item.id));
+  const filteredExpiringClients = expiringClients.filter(item => !dismissedItems.includes(item.id)); // Nuovo filtro
   const filteredNewChecks = newChecks.filter(item => !dismissedItems.includes(item.id));
   const filteredNewAnamnesis = newAnamnesis.filter(item => !dismissedItems.includes(item.id));
 
   return (
     <div className="w-full">
       <h1 className="text-3xl font-bold mb-6">Ultimi Aggiornamenti</h1>
-      <div className="flex flex-col md:flex-row gap-6">
+      <div className="flex flex-col md:flex-row gap-6 overflow-x-auto pb-4"> {/* Aggiunto overflow-x-auto per il mobile */}
+        {/* COLONNA IN SCADENZA */}
+        <UpdateColumn 
+            title="In Scadenza" 
+            icon={<FiDollarSign className="text-red-400" />} 
+            items={filteredExpiringClients} 
+            navigate={navigate} 
+            tab="payments" 
+            onDismiss={handleDismiss} 
+        />
+        
+        {/* COLONNE ESISTENTI */}
         <UpdateColumn title="Clienti Nuovi" icon={<FiUserPlus className="text-primary" />} items={filteredNewClients} navigate={navigate} tab="anamnesi" onDismiss={handleDismiss} />
         <UpdateColumn title="Check Nuovi" icon={<FiCheckSquare className="text-green-400" />} items={filteredNewChecks} navigate={navigate} tab="checks" onDismiss={handleDismiss} />
         <UpdateColumn title="Anamnesi Nuove" icon={<FiFileText className="text-yellow-400" />} items={filteredNewAnamnesis} navigate={navigate} tab="anamnesi" onDismiss={handleDismiss} />
@@ -156,4 +200,3 @@ export default function Updates() {
     </div>
   );
 }
-

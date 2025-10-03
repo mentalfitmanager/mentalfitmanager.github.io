@@ -18,7 +18,8 @@ export default function Login() {
       // MARCA QUESTA SCHEDA DEL BROWSER COME "ADMIN"
       sessionStorage.setItem('app_role', 'admin');
       
-      navigate('/');
+      // *** MODIFICA: Navigazione rimossa. L'utente viene reindirizzato da App.jsx ***
+      
     } catch (err) {
       setError("Credenziali non valide. Riprova.");
       console.error("Errore di login admin:", err);
@@ -63,4 +64,3 @@ export default function Login() {
     </div>
   );
 }
-

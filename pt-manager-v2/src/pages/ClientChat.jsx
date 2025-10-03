@@ -22,10 +22,7 @@ const ClientChat = () => {
     const auth = getAuth();
     const user = auth.currentUser;
 
-    // --- UID DELL'ADMIN INSERITO CORRETTAMENTE ---
-    // Usiamo il primo come ID principale per la chat.
     const ADMIN_UID = "QwWST9OVOlTOi5oheyCqfpXLOLg2";
-    // Il secondo UID ("AeZKjJYu5zMZ4mvffaGiqCBb0cF2") potrà essere usato per darti accesso dall'area admin.
 
     useEffect(() => {
         if (!user) {
@@ -36,50 +33,76 @@ const ClientChat = () => {
         const generatedChatId = [user.uid, ADMIN_UID].sort().join('_');
         setChatId(generatedChatId);
 
-        const messagesCollectionRef = collection(db, 'chats', generatedChatId, 'messages');
-        const q = query(messagesCollectionRef, orderBy('createdAt'));
+        // Funzione per creare la chat se non esiste
+        const initializeChat = async () => {
+            const chatDocRef = doc(db, 'chats', generatedChatId);
+            const chatDoc = await getDoc(chatDocRef);
 
-        const unsubscribe = onSnapshot(q, (querySnapshot) => {
-            const messagesData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setMessages(messagesData);
-            setLoading(false);
+            if (!chatDoc.exists()) {
+                const clientDoc = await getDoc(doc(db, 'clients', user.uid));
+                const clientName = clientDoc.exists() ? clientDoc.data().name : user.email;
+
+                await setDoc(chatDocRef, {
+                    participants: [user.uid, ADMIN_UID],
+                    participantNames: { [user.uid]: clientName, [ADMIN_UID]: "Coach" },
+                    createdAt: serverTimestamp()
+                });
+            }
+        };
+
+        // Inizializza la chat e poi imposta il listener per i messaggi
+        initializeChat().then(() => {
+            const messagesCollectionRef = collection(db, 'chats', generatedChatId, 'messages');
+            const q = query(messagesCollectionRef, orderBy('createdAt'));
+
+            const unsubscribe = onSnapshot(q, (querySnapshot) => {
+                const messagesData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                setMessages(messagesData);
+                setLoading(false);
+            }, (error) => {
+                console.error("Errore nel listener di Firebase:", error);
+                setLoading(false);
+            });
+
+            return () => unsubscribe();
         });
 
-        return () => unsubscribe();
     }, [user, navigate]);
 
+
+    // Effetto per lo scroll automatico
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
 
+    // --- QUESTA È LA FUNZIONE CORRETTA E SICURA PER INVIARE MESSAGGI ---
     const handleSendMessage = async (e) => {
         e.preventDefault();
         if (newMessage.trim() === '' || !chatId) return;
 
-        const messagesCollectionRef = collection(db, 'chats', chatId, 'messages');
-        await addDoc(messagesCollectionRef, {
-            text: newMessage,
-            createdAt: serverTimestamp(),
-            senderId: user.uid
-        });
+        try {
+            // 1. Salva il documento del messaggio nella sotto-collezione
+            const messagesCollectionRef = collection(db, 'chats', chatId, 'messages');
+            await addDoc(messagesCollectionRef, {
+                text: newMessage,
+                createdAt: serverTimestamp(),
+                senderId: user.uid
+            });
 
-        // Aggiorna o crea il documento principale della chat per la cronologia
-        const chatDocRef = doc(db, 'chats', chatId);
-        const clientDoc = await getDoc(doc(db, 'clients', user.uid));
-        const clientName = clientDoc.exists() ? clientDoc.data().name : user.email;
+            // 2. Aggiorna il documento principale della chat con l'ultimo messaggio
+            const chatDocRef = doc(db, 'chats', chatId);
+            await setDoc(chatDocRef, {
+                lastMessage: newMessage,
+                lastUpdate: serverTimestamp(),
+            }, { merge: true });
 
-        await setDoc(chatDocRef, {
-            lastMessage: newMessage,
-            lastUpdate: serverTimestamp(),
-            participants: [user.uid, ADMIN_UID],
-            clientName: clientName, // Salva il nome del cliente per tua comodità
-            participantNames: { // Salva i nomi per un facile accesso
-                [user.uid]: clientName,
-                [ADMIN_UID]: "Coach" // Nome generico per l'admin
-            }
-        }, { merge: true });
+            setNewMessage('');
 
-        setNewMessage('');
+        } catch (error) {
+            // Se una delle due operazioni fallisce, vedremo un errore chiaro
+            console.error("Errore durante l'invio del messaggio:", error);
+            alert("Errore: Impossibile inviare il messaggio. L'operazione è stata bloccata dalle regole di sicurezza.");
+        }
     };
 
     if (loading) {
@@ -131,4 +154,3 @@ const ClientChat = () => {
 };
 
 export default ClientChat;
-

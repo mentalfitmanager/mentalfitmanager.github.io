@@ -39,9 +39,22 @@ const ClientAnamnesi = () => {
             if (docSnap.exists()) {
                 const data = docSnap.data();
                 setAnamnesiData(data);
-                if (data.photoURLs) {
-                    setPhotoPreviews(data.photoURLs);
+
+                // Quando carichiamo i dati, recuperiamo l'URL di download per le anteprime
+                if (data.photoPaths) { // Usiamo photoPaths perché salviamo il path ora
+                    const previews = {};
+                    await Promise.all(Object.entries(data.photoPaths).map(async ([type, path]) => {
+                        try {
+                            // Ottiene l'URL di download dal percorso di storage
+                            const url = await getDownloadURL(ref(storage, path)); 
+                            previews[type] = url;
+                        } catch(e) {
+                            console.error(`Errore nel caricamento URL per ${type}:`, e);
+                        }
+                    }));
+                    setPhotoPreviews(previews);
                 }
+                
                 Object.keys(data).forEach(key => setValue(key, data[key]));
                 setIsEditing(false);
             } else {
@@ -63,6 +76,7 @@ const ClientAnamnesi = () => {
     const onSubmit = async (data) => {
         if (!user) return;
         
+        // Controllo aggiuntivo solo al primo invio (se anamnesiData è nullo)
         if (!anamnesiData && Object.values(photos).some(p => p === null)) {
             alert("Per favore, carica tutte e 4 le foto iniziali.");
             return;
@@ -70,29 +84,33 @@ const ClientAnamnesi = () => {
 
         setLoading(true);
         try {
-            let photoURLs = anamnesiData?.photoURLs || {};
+            // *** MODIFICA CHIAVE: Salviamo il path di storage (photoPaths) e NON l'URL di download ***
+            let photoPaths = anamnesiData?.photoPaths || {};
             const photosToUpload = Object.entries(photos).filter(([, file]) => file !== null);
+
             if (photosToUpload.length > 0) {
-                const uploadedUrls = await Promise.all(
+                const uploadedPaths = await Promise.all(
                     photosToUpload.map(async ([type, file]) => {
+                        // Creazione del percorso di storage
                         const filePath = `clients/${user.uid}/anamnesi_photos/${type}-${uuidv4()}`;
                         const fileRef = ref(storage, filePath);
                         await uploadBytes(fileRef, file);
-                        const url = await getDownloadURL(fileRef);
-                        return { type, url };
+                        
+                        return { type, path: filePath }; // Salviamo il path
                     })
                 );
-                uploadedUrls.forEach(({ type, url }) => { photoURLs[type] = url; });
+                uploadedPaths.forEach(({ type, path }) => { photoPaths[type] = path; });
             }
 
             const anamnesiRef = doc(db, `clients/${user.uid}/anamnesi`, 'initial');
-            const dataToSave = { ...data, photoURLs, submittedAt: serverTimestamp() };
+            // Salviamo photoPaths al posto di photoURLs
+            const dataToSave = { ...data, photoPaths, submittedAt: serverTimestamp() }; 
             await setDoc(anamnesiRef, dataToSave, { merge: true });
             
             setAnamnesiData(dataToSave);
             setIsEditing(false);
             alert("Anamnesi salvata con successo!");
-
+            setPhotos({ front: null, right: null, left: null, back: null }); // Resetta le foto caricate
         } catch (error) {
             console.error("Errore nel salvataggio:", error);
             alert("Si è verificato un errore.");
@@ -100,10 +118,10 @@ const ClientAnamnesi = () => {
             setLoading(false);
         }
     };
-
+    
     if (loading) return <LoadingSpinner />;
 
-    // --- Componenti di UI ---
+    // --- Componenti di UI (Lasciati invariati) ---
     const inputStyle = "w-full p-2 mt-1 bg-gray-700 border border-gray-600 rounded-lg outline-none focus:ring-2 focus:ring-cyan-500";
     const labelStyle = "block text-sm font-medium text-gray-300";
     const sectionStyle = "bg-gray-800/50 p-6 rounded-xl shadow-lg backdrop-blur-sm border border-white/10";
@@ -169,7 +187,7 @@ const ClientAnamnesi = () => {
                     <div className={sectionStyle}><h4 className={headingStyle}>Abitudini Alimentari</h4><div className="space-y-4"><ViewField label="Pasti al giorno" value={anamnesiData.mealsPerDay} /><ViewField label="Tipo Colazione" value={anamnesiData.breakfastType} /><ViewField label="Alimenti da inserire" value={anamnesiData.desiredFoods} /><ViewField label="Alimenti da evitare" value={anamnesiData.dislikedFoods} /><ViewField label="Intolleranze" value={anamnesiData.intolerances} /><ViewField label="Problemi di digestione" value={anamnesiData.digestionIssues} /></div></div>
                     <div className={sectionStyle}><h4 className={headingStyle}>Allenamento</h4><div className="space-y-4"><ViewField label="Allenamenti a settimana" value={anamnesiData.workoutsPerWeek} /><ViewField label="Dettagli Allenamento" value={anamnesiData.trainingDetails} /><ViewField label="Orario e Durata" value={anamnesiData.trainingTime} /></div></div>
                     <div className={sectionStyle}><h4 className={headingStyle}>Salute e Obiettivi</h4><div className="space-y-4"><ViewField label="Infortuni o problematiche" value={anamnesiData.injuries} /><ViewField label="Farmaci" value={anamnesiData.medications} /><ViewField label="Integratori" value={anamnesiData.supplements} /><ViewField label="Obiettivo Principale" value={anamnesiData.mainGoal} /><ViewField label="Durata Percorso" value={anamnesiData.programDuration} /></div></div>
-                    <div className={sectionStyle}><h4 className={headingStyle}>Foto Iniziali</h4><ViewPhotos urls={anamnesiData.photoURLs} /></div>
+                    <div className={sectionStyle}><h4 className={headingStyle}>Foto Iniziali</h4><ViewPhotos urls={photoPreviews} /></div>
                     <div className="flex justify-end pt-4"><button onClick={() => setIsEditing(true)} className="flex items-center gap-2 px-5 py-2.5 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition font-semibold"><FiEdit3 /> Modifica</button></div>
                 </div>
             )}
@@ -178,4 +196,3 @@ const ClientAnamnesi = () => {
 };
 
 export default ClientAnamnesi;
-

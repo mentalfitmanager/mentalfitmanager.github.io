@@ -1,0 +1,56 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Funzione per verificare se l'utente è un admin (LA TUA REGOLA - INVARIATA)
+    function isAdmin() {
+      return request.auth.uid in ["3j0AXIRa4XdHq1ywCl4UBxJNsku2", "AeZKjJYu5zMZ4mvffaGiqCBb0cF2", "QwWST9OVOlTOi5oheyCqfpXLOLg2"];
+    }
+
+    // --- COLLEZIONE 'clients' (LE TUE REGOLE - INVARIATE) ---
+    match /clients/{userId} {
+      allow read: if request.auth.uid == userId || isAdmin();
+      allow write: if isAdmin() || (request.auth.uid == userId && request.resource.data.firstLogin == true);
+    }
+    
+    // Accesso alle sottocollezioni dei clienti (LE TUE REGOLE - INVARIATE)
+    match /clients/{userId}/{document=**} {
+      allow read, write: if request.auth.uid == userId || isAdmin();
+    }
+    
+    // --- COLLEZIONE 'chats' (L'UNICA SEZIONE MODIFICATA E CORRETTA) ---
+    match /chats/{chatId} {
+      
+      // Regola n.1 (LA PIÙ IMPORTANTE): Permette al codice di 'controllare' se una chat esiste (get).
+      // Lo fa in modo sicuro, verificando che l'ID dell'utente sia nel nome del documento.
+      // QUESTA RIGA RISOLVE L'ERRORE 'permission-denied'.
+      allow get: if request.auth != null && request.auth.uid in chatId.split('_');
+
+      // Regola n.2: Permette di creare una chat solo se l'utente è tra i partecipanti.
+      allow create: if request.auth != null && request.auth.uid in request.resource.data.participants;
+      
+      // Regola n.3: Permette di aggiornare una chat (es. ultimo messaggio) solo ai partecipanti.
+      allow update: if request.auth != null && request.auth.uid in resource.data.participants;
+      
+      // Regola n.4: Solo gli admin possono ottenere liste di chat, per sicurezza.
+      allow list: if isAdmin();
+    
+      // --- SOTTOCOLLEZIONE 'messages' ---
+      match /messages/{messageId} {
+        // Un utente può LEGGERE i messaggi solo se è un partecipante della chat genitore
+        allow read: if request.auth != null &&
+                     request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+        
+        // Un utente può CREARE un messaggio solo se è un partecipante ED è il mittente
+        allow create: if request.auth != null &&
+                       request.auth.uid == request.resource.data.senderId &&
+                       request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+      }
+    }
+    
+    // --- COLLEZIONE 'app-data' (LA TUA REGOLA - INVARIATA) ---
+    match /app-data/{docId} {
+      allow read, write: if isAdmin();
+    }
+  }
+}

@@ -12,7 +12,7 @@ function toDate(x) {
   return isNaN(d) ? null : d;
 }
 
-const getPaymentStatus = (scadenza) => { // <-- Nome del parametro cambiato per coerenza
+const getPaymentStatus = (scadenza) => {
   const expiryDate = toDate(scadenza);
   if (!expiryDate) return 'na';
 
@@ -20,7 +20,7 @@ const getPaymentStatus = (scadenza) => { // <-- Nome del parametro cambiato per 
   const diffDays = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
 
   if (diffDays < 0) return 'expired';
-  if (diffDays <= 15) return 'expiring'; // Aumentato a 15 giorni per coerenza con la dashboard
+  if (diffDays <= 15) return 'expiring'; 
   return 'paid';
 };
 
@@ -45,13 +45,15 @@ export default function Clients() {
   const [loading, setLoading] = useState(true);
   
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  // Stato per il filtro attivo (all, paid, expiring, expired)
+  const [statusFilter, setStatusFilter] = useState("all"); 
   const [sortKey, setSortKey] = useState("createdAt");
   const [sortDir, setSortDir] = useState("desc");
   const [page, setPage] = useState(1);
   const perPage = 10;
   
   useEffect(() => {
+    // Legge il filtro dai parametri URL all'avvio
     const params = new URLSearchParams(location.search);
     const filter = params.get('filter');
     if (filter && ['paid', 'expiring', 'expired'].includes(filter)) {
@@ -79,10 +81,13 @@ export default function Clients() {
 
   const filtered = useMemo(() => {
     let filteredClients = [...clients];
+    
+    // 1. FILTRO PER STATO (CLICCANDO SUI BOTTONI)
     if (statusFilter !== 'all') {
-      // CORREZIONE: usa 'scadenza'
       filteredClients = filteredClients.filter(client => getPaymentStatus(client.scadenza) === statusFilter);
     }
+    
+    // 2. FILTRO PER RICERCA TESTUALE
     const q = query.trim().toLowerCase();
     if (q) {
       filteredClients = filteredClients.filter(c =>
@@ -90,10 +95,11 @@ export default function Clients() {
         (c.email || "").toLowerCase().includes(q)
       );
     }
+    
+    // 3. ORDINAMENTO
     const getVal = (c, key) => {
       switch (key) {
         case "name": return (c.name || "").toLowerCase();
-        // CORREZIONE: usa 'scadenza'
         case "scadenza": return toDate(c.scadenza)?.getTime() || 0;
         case "createdAt": default: return toDate(c.createdAt)?.getTime() || 0;
       }
@@ -120,12 +126,26 @@ export default function Clients() {
 
   const SortIcon = ({ col }) => sortKey === col ? (sortDir === "asc" ? <FiChevronUp className="inline ml-1" /> : <FiChevronDown className="inline ml-1" />) : null;
   
-  const FilterButton = ({ status, label, count }) => { /* ... (invariato) ... */ };
-  
+  // *** NUOVO COMPONENTE: GESTISCE IL FILTRO CLICCABILE ***
+  const FilterButton = ({ status, label, count }) => (
+    <button 
+      onClick={() => {
+        setStatusFilter(status);
+        setPage(1);
+      }}
+      className={`px-3 py-1 text-sm font-semibold rounded-full transition-colors whitespace-nowrap 
+        ${statusFilter === status 
+          ? 'bg-primary text-white' 
+          : 'bg-white/10 text-muted hover:bg-white/20'}`
+      }
+    >
+      {label} ({count})
+    </button>
+  );
+
   const clientCounts = useMemo(() => {
     return {
       all: clients.length,
-      // CORREZIONE: usa 'scadenza'
       paid: clients.filter(c => getPaymentStatus(c.scadenza) === 'paid').length,
       expiring: clients.filter(c => getPaymentStatus(c.scadenza) === 'expiring').length,
       expired: clients.filter(c => getPaymentStatus(c.scadenza) === 'expired').length,
@@ -134,25 +154,27 @@ export default function Clients() {
 
   return (
     <div className="w-full">
-      {/* ... (intestazione invariata) ... */}
+      {/* Intestazione e Azioni (Responsive) */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
         <h1 className="text-3xl font-bold">Clienti</h1>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-card border border-white/10 rounded-lg px-3 py-2">
+        <div className="flex items-center gap-3 w-full md:w-auto">
+          {/* Barra di Ricerca Resonsive */}
+          <div className="flex items-center gap-2 bg-card border border-white/10 rounded-lg px-3 py-2 flex-1 min-w-[150px]">
             <FiSearch className="text-muted" />
             <input
               value={query}
               onChange={(e) => { setQuery(e.target.value); setPage(1); }}
               className="bg-transparent outline-none placeholder-muted w-full"
-              placeholder="Cerca…"
+              placeholder="Cerca per nome o email…"
             />
           </div>
-          <button onClick={() => navigate("/new")} className="flex items-center justify-center gap-2 px-4 py-2 bg-primary hover:bg-primary/80 text-white rounded-lg"><FiPlus /> Nuovo</button>
+          <button onClick={() => navigate("/new")} className="flex items-center justify-center gap-2 px-4 py-2 bg-primary hover:bg-primary/80 text-white rounded-lg whitespace-nowrap"><FiPlus /> Nuovo</button>
         </div>
       </div>
       
-      <div className="flex items-center gap-2 mb-4 p-2 bg-background rounded-lg">
-        <FiFilter className="text-muted ml-1"/>
+      {/* Sezione Filtri (Scrollabile su Mobile) */}
+      <div className="flex items-center gap-2 mb-4 p-2 bg-background rounded-lg overflow-x-auto whitespace-nowrap">
+        <FiFilter className="text-muted ml-1 flex-shrink-0"/>
         <FilterButton status="all" label="Tutti" count={clientCounts.all} />
         <FilterButton status="paid" label="Pagato" count={clientCounts.paid} />
         <FilterButton status="expiring" label="In Scadenza" count={clientCounts.expiring} />
@@ -180,7 +202,6 @@ export default function Clients() {
                 <motion.tr key={c.id} className="border-b border-white/10 hover:bg-white/5" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.05 }}>
                   <td className="p-3 font-medium"><button className="hover:underline" onClick={() => navigate(`/client/${c.id}`)}>{c.name || "-"}</button></td>
                   <td className="p-3 text-muted">{c.email || "-"}</td>
-                  {/* CORREZIONE: usa 'scadenza' */}
                   <td className="p-3"><PaymentStatusBadge status={getPaymentStatus(c.scadenza)} /></td>
                   <td className="p-3 text-muted">{toDate(c.scadenza) ? toDate(c.scadenza).toLocaleDateString('it-IT') : "-"}</td>
                   <td className="p-3">
